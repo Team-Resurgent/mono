@@ -1,0 +1,96 @@
+name: Build libmono (Xbox)
+
+# CI-only branch. Builds the Xbox port of Mono from the `xbox` branch and publishes a
+# prebuilt libmono package as a rolling GitHub release, consumed by RXDK-DotNet.
+# Mirrors Team-Resurgent/llvm-project's `teamresurgent` CI-only branch model (which builds
+# its `xbox` branch and releases the clang toolchain).
+#
+# NOTE: the Xbox build recipe (source subset + config header + PAL shims) is being brought up
+# in RXDK-DotNet Phase 1 (docs/phase1-mono.md). The build step below is a TODO placeholder
+# until that recipe is proven locally; the triggers and release plumbing are real.
+
+on:
+  push:
+    branches: [teamresurgent]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release tag (empty = moving latest)'
+        required: false
+        type: string
+  schedule:
+    - cron: '0 6 * * 1'   # weekly rebuild against the xbox branch
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout mono (xbox branch — the source to build)
+        uses: actions/checkout@v4
+        with:
+          ref: xbox
+          submodules: recursive
+
+      # TODO(Phase 1): install the RXDK LLVM toolchain (rxdk install-llvm) + engine, then
+      # cross-build libmono for i686-pc-windows-gnu via the RXDK-DotNet libmono.json manifest
+      # + generated config header, isa-scan the output (must be PIII-clean), and stage
+      # libmono.lib + the embed headers.
+      - name: Build libmono (placeholder)
+        shell: bash
+        run: echo "TODO: cross-build libmono (see RXDK-DotNet docs/phase1-mono.md)."
+
+      # - uses: actions/upload-artifact@v4
+      #   with: { name: libmono-${{ matrix.os }}, path: dist/**, if-no-files-found: error }
+
+  release:
+    name: Rolling release
+    needs: [build]
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+        continue-on-error: true   # nothing to release during bring-up
+
+      - name: Resolve tag (tag / moving latest)
+        id: meta
+        shell: bash
+        run: |
+          if [ -n "${{ github.event.inputs.release_tag }}" ]; then
+            echo "tag=${{ github.event.inputs.release_tag }}" >> "$GITHUB_OUTPUT"
+            echo "moving=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=latest" >> "$GITHUB_OUTPUT"
+            echo "moving=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Move 'latest'
+        if: steps.meta.outputs.moving == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release delete latest --repo "${{ github.repository }}" --cleanup-tag --yes || true
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: libmono (Xbox) ${{ steps.meta.outputs.tag }}
+          make_latest: true
+          generate_release_notes: true
+          files: dist/**/*
