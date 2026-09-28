@@ -490,16 +490,14 @@ mono_threads_platform_get_stack_bounds (guint8 **staddr, size_t *stsize)
 	*staddr = (guint8*)low;
 	*stsize = high - low;
 #else // Win7 and older (or newer, still works, but much slower).
-	MEMORY_BASIC_INFORMATION info;
-	// Windows stacks are commited on demand, one page at time.
-	// teb->StackBase is the top from which it grows down.
-	// teb->StackLimit is commited, the lowest it has gone so far.
-	// info.AllocationBase is reserved, the lowest it can go.
-	//
-	VirtualQuery (&info, &info, sizeof (info));
-	*staddr = (guint8*)info.AllocationBase;
-	// TEB starts with TIB. TIB is public, TEB is not.
-	*stsize = (size_t)((NT_TIB*)NtCurrentTeb ())->StackBase - (size_t)info.AllocationBase;
+	// Stock Mono derives the reserved stack base from VirtualQuery's AllocationBase and the top from
+	// teb->StackBase. On the original Xbox neither holds: VirtualQuery reports an AllocationBase near
+	// the current SP (not the reservation), and thread stacks are fully committed up front. The NT_TIB
+	// StackBase (fs:[4], top) and StackLimit (fs:[8], bottom) ARE valid and delimit the whole stack,
+	// so use them directly. staddr is the lowest address; stsize spans down-to-up.
+	NT_TIB *tib = (NT_TIB*)NtCurrentTeb ();
+	*staddr = (guint8*)tib->StackLimit;
+	*stsize = (size_t)tib->StackBase - (size_t)tib->StackLimit;
 #endif
 }
 

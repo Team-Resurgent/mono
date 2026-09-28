@@ -80,20 +80,18 @@ typedef struct _TEB {
 } TEB, *PTEB;
 #endif
 
-// TlsGetValue always writes 0 to LastError. Which can cause problems. This never changes LastError.
-//
+// Stock Mono reads teb->TlsSlots[index] directly (to avoid TlsGetValue clobbering LastError). That
+// relies on the desktop-NT TEB layout (TlsSlots at a fixed offset). The original Xbox kernel's TEB
+// does NOT match that layout, so the raw read faults. We already set values through libxapi's real
+// TlsSetValue, so read them back through the matching TlsGetValue and just preserve LastError.
 MONO_INLINE
 void*
 mono_native_tls_get_value (unsigned index)
 {
-	PTEB const teb = NtCurrentTeb ();
-
-	if (index < TLS_MINIMUM_AVAILABLE)
-		return teb->TlsSlots [index];
-
-	void** const p = (void**)teb->TlsExpansionSlots;
-
-	return p ? p [index - TLS_MINIMUM_AVAILABLE] : NULL;
+	DWORD const saved_error = GetLastError ();
+	void *const value = TlsGetValue (index);
+	SetLastError (saved_error);
+	return value;
 }
 
 #else
