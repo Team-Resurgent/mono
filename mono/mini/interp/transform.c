@@ -2203,8 +2203,96 @@ interp_handle_intrinsics (TransformData *td, MonoMethod *target_method, MonoClas
 			interp_ins_set_dreg (td->last_ins, td->sp [-1].local);
 			td->ip += 5;
 			return TRUE;
+		} else if (!strcmp (tm, "Add") || !strcmp (tm, "Subtract")) {
+			/* ref +/- elementOffset*sizeof(T). sp[-2]=source(MP), sp[-1]=elementOffset(I4). */
+			gboolean rxdk_sub = (tm [0] == 'S');
+			/* materialize sizeof(T): stack becomes [source, off, size] */
+			interp_add_ins (td, MINT_LDC_I4);
+			WRITE32_INS (td->last_ins, 0, &rxdk_elem);
+			push_simple_type (td, STACK_TYPE_I4);
+			interp_ins_set_dreg (td->last_ins, td->sp [-1].local);
+			/* product = off * size: pop size+off, push product -> [source, product] */
+			interp_add_ins (td, MINT_MUL_I4);
+			td->sp -= 2;
+			interp_ins_set_sregs2 (td->last_ins, td->sp [0].local, td->sp [1].local);
+			push_simple_type (td, STACK_TYPE_I4);
+			interp_ins_set_dreg (td->last_ins, td->sp [-1].local);
+			/* result = source +/- product -> [result] */
+			interp_add_ins (td, rxdk_sub ? MINT_SUB_I4 : MINT_ADD_I4);
+			td->sp -= 2;
+			interp_ins_set_sregs2 (td->last_ins, td->sp [0].local, td->sp [1].local);
+			push_simple_type (td, STACK_TYPE_MP);
+			interp_ins_set_dreg (td->last_ins, td->sp [-1].local);
+			td->ip += 5;
+			return TRUE;
+		} else if (!strcmp (tm, "AreSame") || !strcmp (tm, "IsAddressLessThan") || !strcmp (tm, "IsAddressGreaterThan")) {
+			/* pointer comparisons -> bool. sp[-2]=a, sp[-1]=b. */
+			int rxdk_op = !strcmp (tm, "AreSame") ? MINT_CEQ_I4
+			            : (!strcmp (tm, "IsAddressLessThan") ? MINT_CLT_UN_I4 : MINT_CGT_UN_I4);
+			td->sp -= 2;
+			interp_add_ins (td, rxdk_op);
+			interp_ins_set_sregs2 (td->last_ins, td->sp [0].local, td->sp [1].local);
+			push_simple_type (td, STACK_TYPE_I4);
+			interp_ins_set_dreg (td->last_ins, td->sp [-1].local);
+			td->ip += 5;
+			return TRUE;
+		} else if (!strcmp (tm, "ByteOffset")) {
+			/* ByteOffset(origin, target) = target - origin (nint). sp[-2]=origin, sp[-1]=target. */
+			td->sp -= 2;
+			interp_add_ins (td, MINT_SUB_I4);
+			interp_ins_set_sregs2 (td->last_ins, td->sp [1].local, td->sp [0].local);
+			push_simple_type (td, STACK_TYPE_I4);
+			interp_ins_set_dreg (td->last_ins, td->sp [-1].local);
+			td->ip += 5;
+			return TRUE;
+		} else if (!strcmp (tm, "Read") || !strcmp (tm, "ReadUnaligned")) {
+			/* load T from a ref/pointer (top of stack). We ignore alignment (x86 allows it). */
+			int rxdk_mt = mint_type (csignature->ret);
+			int rxdk_op = -1, rxdk_st = STACK_TYPE_I4;
+			switch (rxdk_mt) {
+			case MINT_TYPE_I1: rxdk_op = MINT_LDIND_I1_CHECK; rxdk_st = STACK_TYPE_I4; break;
+			case MINT_TYPE_U1: rxdk_op = MINT_LDIND_U1_CHECK; rxdk_st = STACK_TYPE_I4; break;
+			case MINT_TYPE_I2: rxdk_op = MINT_LDIND_I2_CHECK; rxdk_st = STACK_TYPE_I4; break;
+			case MINT_TYPE_U2: rxdk_op = MINT_LDIND_U2_CHECK; rxdk_st = STACK_TYPE_I4; break;
+			case MINT_TYPE_I4: rxdk_op = MINT_LDIND_I4_CHECK; rxdk_st = STACK_TYPE_I4; break;
+			case MINT_TYPE_I8: rxdk_op = MINT_LDIND_I8_CHECK; rxdk_st = STACK_TYPE_I8; break;
+			case MINT_TYPE_R4: rxdk_op = MINT_LDIND_R4_CHECK; rxdk_st = STACK_TYPE_R4; break;
+			case MINT_TYPE_R8: rxdk_op = MINT_LDIND_R8_CHECK; rxdk_st = STACK_TYPE_R8; break;
+			case MINT_TYPE_O:  rxdk_op = MINT_LDIND_REF;      rxdk_st = STACK_TYPE_O;  break;
+			default: break; /* VT: fall through to the throwing body for now */
+			}
+			if (rxdk_op != -1) {
+				td->sp--;
+				interp_add_ins (td, rxdk_op);
+				interp_ins_set_sreg (td->last_ins, td->sp [0].local);
+				push_simple_type (td, rxdk_st);
+				interp_ins_set_dreg (td->last_ins, td->sp [-1].local);
+				td->ip += 5;
+				return TRUE;
+			}
+		} else if (!strcmp (tm, "Write") || !strcmp (tm, "WriteUnaligned")) {
+			/* store T to a ref/pointer. sp[-2]=address, sp[-1]=value. */
+			int rxdk_mt = mint_type (csignature->params [1]);
+			int rxdk_op = -1;
+			switch (rxdk_mt) {
+			case MINT_TYPE_I1: case MINT_TYPE_U1: rxdk_op = MINT_STIND_I1; break;
+			case MINT_TYPE_I2: case MINT_TYPE_U2: rxdk_op = MINT_STIND_I2; break;
+			case MINT_TYPE_I4: rxdk_op = MINT_STIND_I4; break;
+			case MINT_TYPE_I8: rxdk_op = MINT_STIND_I8; break;
+			case MINT_TYPE_R4: rxdk_op = MINT_STIND_R4; break;
+			case MINT_TYPE_R8: rxdk_op = MINT_STIND_R8; break;
+			case MINT_TYPE_O:  rxdk_op = MINT_STIND_REF; break;
+			default: break; /* VT: fall through */
+			}
+			if (rxdk_op != -1) {
+				td->sp -= 2;
+				interp_add_ins (td, rxdk_op);
+				interp_ins_set_sregs2 (td->last_ins, td->sp [0].local, td->sp [1].local);
+				td->ip += 5;
+				return TRUE;
+			}
 		}
-		/* other Unsafe.* (Add/Subtract/Read/Write/Copy/...) fall through for now */
+		/* other Unsafe.* (Add/Subtract/Copy/InitBlock/...) fall through for now */
 	} else if (in_corlib && !strcmp (klass_name_space, "System.Runtime.CompilerServices") && !strcmp (klass_name, "RuntimeHelpers")) {
 	} else if (in_corlib && !strcmp (klass_name_space, "System") && !strcmp (klass_name, "RuntimeMethodHandle") && !strcmp (tm, "GetFunctionPointer") && csignature->param_count == 1) {
 		// We must intrinsify this method on interp so we don't return a pointer to native code entering interpreter
