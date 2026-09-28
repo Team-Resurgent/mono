@@ -2161,6 +2161,50 @@ interp_handle_intrinsics (TransformData *td, MonoMethod *target_method, MonoClas
 	} else if (((in_corlib && !strcmp (klass_name_space, "Internal.Runtime.CompilerServices"))
 				|| !strcmp (klass_name_space, "System.Runtime.CompilerServices"))
 			   && !strcmp (klass_name, "Unsafe")) {
+		/* System.Runtime.CompilerServices.Unsafe.* are [Intrinsic]; their managed bodies throw
+		 * NotImplementedException, so the interp MUST intrinsify them. On i686 pointers are 4 bytes. */
+		MonoGenericContext *rxdk_ctx = mono_method_get_context (target_method);
+		MonoType *rxdk_targ = (rxdk_ctx && rxdk_ctx->method_inst && rxdk_ctx->method_inst->type_argc >= 1)
+		                      ? rxdk_ctx->method_inst->type_argv [0] : NULL;
+		int rxdk_elem = rxdk_targ ? mono_class_array_element_size (mono_class_from_mono_type_internal (rxdk_targ)) : (int)sizeof (gpointer);
+
+		if (!strcmp (tm, "AsPointer") || !strcmp (tm, "As") || !strcmp (tm, "AsRef")) {
+			/* Pure pointer-sized reinterpret: the argument value passes straight through. */
+			int rxdk_rt = STACK_TYPE_MP;
+			MonoType *rxdk_ret = csignature->ret;
+			if (!rxdk_ret->byref) {
+				int t = rxdk_ret->type;
+				if (t == MONO_TYPE_OBJECT || t == MONO_TYPE_CLASS || t == MONO_TYPE_STRING ||
+				    t == MONO_TYPE_SZARRAY || t == MONO_TYPE_ARRAY || t == MONO_TYPE_VAR ||
+				    t == MONO_TYPE_MVAR || t == MONO_TYPE_GENERICINST)
+					rxdk_rt = STACK_TYPE_O;
+			}
+			td->sp--;
+			interp_add_ins (td, MINT_MOV_4);
+			interp_ins_set_sreg (td->last_ins, td->sp [0].local);
+			push_simple_type (td, rxdk_rt);
+			interp_ins_set_dreg (td->last_ins, td->sp [-1].local);
+			td->ip += 5;
+			return TRUE;
+		} else if (!strcmp (tm, "SizeOf")) {
+			interp_add_ins (td, MINT_LDC_I4);
+			WRITE32_INS (td->last_ins, 0, &rxdk_elem);
+			push_simple_type (td, STACK_TYPE_I4);
+			interp_ins_set_dreg (td->last_ins, td->sp [-1].local);
+			td->ip += 5;
+			return TRUE;
+		} else if (!strcmp (tm, "AddByteOffset") || !strcmp (tm, "SubtractByteOffset")) {
+			/* ref +/- byteOffset (both pointer-sized): sp[-2]=source, sp[-1]=offset. */
+			gboolean rxdk_sub = (tm [0] == 'S');
+			td->sp -= 2;
+			interp_add_ins (td, rxdk_sub ? MINT_SUB_I4 : MINT_ADD_I4);
+			interp_ins_set_sregs2 (td->last_ins, td->sp [0].local, td->sp [1].local);
+			push_simple_type (td, STACK_TYPE_MP);
+			interp_ins_set_dreg (td->last_ins, td->sp [-1].local);
+			td->ip += 5;
+			return TRUE;
+		}
+		/* other Unsafe.* (Add/Subtract/Read/Write/Copy/...) fall through for now */
 	} else if (in_corlib && !strcmp (klass_name_space, "System.Runtime.CompilerServices") && !strcmp (klass_name, "RuntimeHelpers")) {
 	} else if (in_corlib && !strcmp (klass_name_space, "System") && !strcmp (klass_name, "RuntimeMethodHandle") && !strcmp (tm, "GetFunctionPointer") && csignature->param_count == 1) {
 		// We must intrinsify this method on interp so we don't return a pointer to native code entering interpreter
