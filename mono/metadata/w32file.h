@@ -433,10 +433,10 @@ gboolean
 mono_w32file_filetime_to_systemtime (const FILETIME *file_time, SYSTEMTIME *system_time);
 
 gpointer
-mono_w32file_find_first (const gunichar2 *pattern, WIN32_FIND_DATA *find_data);
+mono_w32file_find_first (const gunichar2 *pattern, WIN32_FIND_DATAW *find_data);
 
 gboolean
-mono_w32file_find_next (gpointer handle, WIN32_FIND_DATA *find_data);
+mono_w32file_find_next (gpointer handle, WIN32_FIND_DATAW *find_data);
 
 gboolean
 mono_w32file_find_close (gpointer handle);

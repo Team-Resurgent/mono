@@ -222,7 +222,7 @@ HANDLE
 ves_icall_System_IO_MonoIO_FindFirstFile (const gunichar2 *path_with_pattern, MonoStringHandleOut file_name, gint32 *file_attr, gint32 *ioerror, MonoError *error)
 {
 	HANDLE hnd;
-	WIN32_FIND_DATA data;
+	WIN32_FIND_DATAW data;
 
 	hnd = mono_w32file_find_first (path_with_pattern, &data);
 
@@ -248,7 +248,7 @@ MonoBoolean
 ves_icall_System_IO_MonoIO_FindNextFile (HANDLE hnd, MonoStringHandleOut file_name, gint32 *file_attr, gint32 *ioerror, MonoError *error)
 {
 	MonoBoolean res;
-	WIN32_FIND_DATA data;
+	WIN32_FIND_DATAW data;
 
 	res = mono_w32file_find_next (hnd, &data);
 
