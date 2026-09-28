@@ -2365,18 +2365,11 @@ sgen_client_scan_thread_data (void *start_nursery, void *end_nursery, gboolean p
 
 		sgen_binary_protocol_scan_stack ((gpointer)mono_thread_info_get_tid (info), info->client_info.stack_start, info->client_info.info.stack_end, skip_reason);
 
-		if (skip_reason) {
-			if (precise) {
-				/* If we skip a thread with a non-empty handle stack and then it
-				 * resumes running we may potentially move an object but fail to
-				 * update the reference in the handle.
-				 */
-				HandleStack *stack = info->client_info.info.handle_stack;
-				g_assert (stack == NULL || mono_handle_stack_is_empty (stack));
-			}
-			continue;
-		}
-
+		/* Native stack is only scanned when suspend captured an SP inside the
+		 * recorded bounds. Xbox suspend often does not, which used to skip the
+		 * thread entirely and abort on a non-empty handle stack. Handles and
+		 * the interpreter stack are still scanned below. */
+		if (!skip_reason) {
 		g_assert (info->client_info.stack_start);
 		g_assert (info->client_info.info.stack_end);
 
@@ -2410,6 +2403,7 @@ sgen_client_scan_thread_data (void *start_nursery, void *end_nursery, gboolean p
 					}
 				}
 			}
+		}
 		}
 		if (gc_callbacks.interp_mark_func) {
 			PinHandleStackInteriorPtrData ud;

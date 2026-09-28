@@ -82,8 +82,15 @@ mono_poll (mono_pollfd *ufds, unsigned int nfds, int timeout)
 	for (i = 0; i < nfds; i++) {
 		ufds [i].revents = 0;
 		fd = ufds [i].fd;
+#ifdef RXDK_XBOX_SELECT
+		/* Xbox SOCKET values are kernel handles and often have the high bit set.
+		 * Only -1 (INVALID_SOCKET) means "skip this slot". */
+		if (fd == -1)
+			continue;
+#else
 		if (fd < 0)
 			continue;
+#endif
 
 #ifdef HOST_WIN32
 		if (nexc >= FD_SETSIZE) {
@@ -111,7 +118,17 @@ mono_poll (mono_pollfd *ufds, unsigned int nfds, int timeout)
 			
 	}
 
+#ifdef RXDK_XBOX_SELECT
+	/* Xbox winsock returns WSAEINVAL for a nonzero nfds, and for a non-NULL
+	 * fd_set whose fd_count is 0. Pass NULL for the sets this poll does not use. */
+	affected = select (0,
+		rfds.fd_count ? &rfds : NULL,
+		wfds.fd_count ? &wfds : NULL,
+		efds.fd_count ? &efds : NULL,
+		tvptr);
+#else
 	affected = select (maxfd + 1, &rfds, &wfds, &efds, tvptr);
+#endif
 	if (affected == -1) {
 #ifdef HOST_WIN32
 		int error = WSAGetLastError ();
@@ -135,8 +152,13 @@ mono_poll (mono_pollfd *ufds, unsigned int nfds, int timeout)
 	count = 0;
 	for (i = 0; i < nfds && affected > 0; i++) {
 		fd = ufds [i].fd;
+#ifdef RXDK_XBOX_SELECT
+		if (fd == -1)
+			continue;
+#else
 		if (fd < 0)
 			continue;
+#endif
 
 		events = ufds [i].events;
 		if ((events & MONO_POLLIN) != 0 && FD_ISSET (fd, &rfds)) {
