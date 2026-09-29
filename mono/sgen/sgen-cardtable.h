@@ -37,8 +37,12 @@ void sgen_card_table_init (SgenRememberedSet *remset);
 
 /* How many bits of the address space is covered by the card table.
  * If this value is smaller than the number of address bits, card aliasing is required.
+ *
+ * The Xbox commits every page up front and has 64 MB in all, so a card table spanning the
+ * full 32-bit space would pin 8 MB. 27 bits (a 128 MB window) aliases the rest, which costs
+ * an occasional extra card scan and keeps the table and its shadow at 256 KB each.
  */
-#define CARD_TABLE_BITS 32
+#define CARD_TABLE_BITS 27
 
 #define CARD_SIZE_IN_BYTES (1 << CARD_BITS)
 #define CARD_COUNT_BITS (CARD_TABLE_BITS - CARD_BITS)
