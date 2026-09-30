@@ -187,6 +187,13 @@ mini_emit_memcpy_internal (MonoCompile *cfg, MonoInst *dest, MonoInst *src, Mono
 {
 	/* FIXME: Optimize the case when src/dest is OP_LDADDR */
 
+#ifdef TARGET_X86
+	/* x86 word loads and stores work at any alignment, so a packed struct (e.g. a Pack=1 vertex)
+	 * need not be copied byte by byte, nor through a call to the managed memcpy. */
+	if (align < 4)
+		align = 4;
+#endif
+
 	/* We can't do copies at a smaller granule than the provided alignment */
 	if (size_ins || (size / align > MAX_INLINE_COPIES) || !(cfg->opt & MONO_OPT_INTRINS)) {
 		MonoInst *iargs [3];

@@ -1795,7 +1795,10 @@ get_aligned_stack_start (SgenThreadInfo *info)
 // 4. Check against the high watermark in the TIB. That is done.
 //  TIB is the public prefix TEB. It is Windows.h, ntddk.h, etc.
 //
-	aligned_stack_start = MAX (aligned_stack_start, info->client_info.info.windows_tib->StackLimit);
+	// On the original Xbox, windows_tib is the processor's control region, shared by all threads and
+	// describing whichever thread is running, so its StackLimit is the scanning thread's, not this
+	// one's. Xbox stacks are fully committed, so the limit recorded at registration is exact.
+	aligned_stack_start = MAX (aligned_stack_start, info->client_info.info.stack_start_limit);
 #endif
 	return aligned_stack_start;
 }
